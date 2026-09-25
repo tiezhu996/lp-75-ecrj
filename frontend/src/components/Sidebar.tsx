@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Modal, Form, Input, message, Popconfirm, Space } from 'antd';
+import { Layout, Menu, Button, Modal, Form, Input, Select, message, Popconfirm, Space } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, HistoryOutlined, SettingOutlined } from '@ant-design/icons';
-import { Collection } from '../types';
+import { Collection, CollectionAuth } from '../types';
 import { createCollection, deleteCollection, updateCollection } from '../api/collections';
 
 const { Sider } = Layout;
+const { Option } = Select;
 
 interface SidebarProps {
   collections: Collection[];
@@ -22,11 +23,13 @@ const Sidebar = ({
   onSelectCollection,
   onOpenHistory,
   onOpenEnvironments,
+  onRefreshCollections,
 }: SidebarProps) => {
   const [collectionModalVisible, setCollectionModalVisible] = useState(false);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [collectionForm] = Form.useForm();
   const [collectionModalLoading, setCollectionModalLoading] = useState(false);
+  const authType = Form.useWatch(['auth', 'type'], collectionForm);
 
   useEffect(() => {
     if (!collectionModalVisible) {
@@ -41,23 +44,44 @@ const Sidebar = ({
       collectionForm.setFieldsValue({
         name: collection.name,
         description: collection.description || '',
+        auth: {
+          type: collection.auth?.type || 'none',
+          token: collection.auth?.token || '',
+          headerName: collection.auth?.headerName || '',
+          headerValue: collection.auth?.headerValue || '',
+        },
       });
     }
     setCollectionModalVisible(true);
   };
 
-  const handleSaveCollection = async (values: { name: string; description?: string }) => {
+  const handleSaveCollection = async (values: {
+    name: string;
+    description?: string;
+    auth?: CollectionAuth;
+  }) => {
     try {
       setCollectionModalLoading(true);
+      const params = {
+        name: values.name,
+        description: values.description,
+        auth: {
+          type: values.auth?.type || 'none',
+          token: values.auth?.token?.trim() || '',
+          headerName: values.auth?.headerName?.trim() || '',
+          headerValue: values.auth?.headerValue?.trim() || '',
+        },
+      };
       if (editingCollection) {
-        await updateCollection(editingCollection._id, values);
+        await updateCollection(editingCollection._id, params);
         message.success('更新成功');
       } else {
-        await createCollection(values);
+        await createCollection(params);
         message.success('创建成功');
       }
       setCollectionModalVisible(false);
       collectionForm.resetFields();
+      onRefreshCollections();
     } catch {
     } finally {
       setCollectionModalLoading(false);
@@ -162,7 +186,12 @@ const Sidebar = ({
         onCancel={() => setCollectionModalVisible(false)}
         footer={null}
       >
-        <Form form={collectionForm} layout="vertical" onFinish={handleSaveCollection}>
+        <Form
+          form={collectionForm}
+          layout="vertical"
+          onFinish={handleSaveCollection}
+          initialValues={{ auth: { type: 'none', token: '', headerName: '', headerValue: '' } }}
+        >
           <Form.Item
             name="name"
             label="集合名称"
@@ -173,6 +202,36 @@ const Sidebar = ({
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="请输入描述" rows={3} />
           </Form.Item>
+          <Form.Item
+            name={['auth', 'type']}
+            label="共享鉴权"
+            tooltip="集合内接口和临时请求发送时自动附加；接口自己写了同名请求头时以接口为准"
+          >
+            <Select>
+              <Option value="none">无</Option>
+              <Option value="bearer">Bearer 令牌</Option>
+              <Option value="custom">自定义请求头</Option>
+            </Select>
+          </Form.Item>
+          {authType === 'bearer' && (
+            <Form.Item
+              name={['auth', 'token']}
+              label="令牌 Token"
+              tooltip="发送时自动附加请求头 Authorization: Bearer <令牌>"
+            >
+              <Input.Password placeholder="请输入 Bearer 令牌" autoComplete="off" />
+            </Form.Item>
+          )}
+          {authType === 'custom' && (
+            <>
+              <Form.Item name={['auth', 'headerName']} label="请求头名称">
+                <Input placeholder="例如 X-Api-Key" />
+              </Form.Item>
+              <Form.Item name={['auth', 'headerValue']} label="请求头值">
+                <Input.Password placeholder="请输入请求头的值" autoComplete="off" />
+              </Form.Item>
+            </>
+          )}
           <Form.Item style={{ marginBottom: 0 }}>
             <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button onClick={() => setCollectionModalVisible(false)}>取消</Button>

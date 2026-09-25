@@ -42,6 +42,7 @@ import {
 import { sendRequest } from '../api/proxy';
 import { replaceEnvVariables } from '../utils/environment';
 import { tryFormatJson, isValidJson } from '../utils/json';
+import { buildCollectionAuthHeaders, mergeAuthHeaders } from '../utils/collectionAuth';
 
 const { Content } = Layout;
 const { Option } = Select;
@@ -73,6 +74,7 @@ interface RequestPanelProps {
 
 const RequestPanel = ({
   collectionId,
+  collections,
   activeEnvironment,
   initialConfig,
 }: RequestPanelProps) => {
@@ -87,6 +89,9 @@ const RequestPanel = ({
   const [response, setResponse] = useState<ProxyResponse | null>(null);
   const [endpointName, setEndpointName] = useState('');
   const [showNameInput, setShowNameInput] = useState(false);
+
+  const currentCollection = collections.find((c) => c._id === collectionId) || null;
+  const collectionAuthType = currentCollection?.auth?.type || 'none';
 
   useEffect(() => {
     if (collectionId) {
@@ -163,6 +168,13 @@ const RequestPanel = ({
       return;
     }
 
+    const authResult = buildCollectionAuthHeaders(currentCollection);
+    if (authResult.error) {
+      message.error(authResult.error);
+      return;
+    }
+    const mergedHeaders = mergeAuthHeaders(headers, authResult.headers);
+
     try {
       setSending(true);
       const resolvedUrl = replaceEnvVariables(url, activeEnvironment);
@@ -170,7 +182,7 @@ const RequestPanel = ({
       const result = await sendRequest({
         method,
         url: resolvedUrl,
-        headers,
+        headers: mergedHeaders,
         body,
       });
 
@@ -533,6 +545,11 @@ const RequestPanel = ({
               {activeEnvironment && (
                 <Tag color="green">
                   环境: {activeEnvironment.name}
+                </Tag>
+              )}
+              {collectionAuthType !== 'none' && (
+                <Tag color="blue">
+                  集合鉴权: {collectionAuthType === 'bearer' ? 'Bearer 令牌' : '自定义请求头'}
                 </Tag>
               )}
             </div>

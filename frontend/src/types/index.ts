@@ -37,11 +37,21 @@ export interface Environment {
   updatedAt: string;
 }
 
+export type CollectionAuthType = 'none' | 'bearer' | 'custom';
+
+export interface CollectionAuth {
+  type: CollectionAuthType;
+  token?: string;
+  headerName?: string;
+  headerValue?: string;
+}
+
 export interface Collection {
   _id: string;
   userId: string;
   name: string;
   description?: string;
+  auth?: CollectionAuth;
   createdAt: string;
   updatedAt: string;
 }

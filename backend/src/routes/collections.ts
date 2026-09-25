@@ -7,10 +7,30 @@ import mongoose from 'mongoose';
 
 const router = Router();
 
+interface CollectionAuthInput {
+  type?: 'none' | 'bearer' | 'custom';
+  token?: string;
+  headerName?: string;
+  headerValue?: string;
+}
+
 interface CreateCollectionRequest {
   name: string;
   description?: string;
+  auth?: CollectionAuthInput;
 }
+
+const AUTH_TYPES = ['none', 'bearer', 'custom'] as const;
+
+const normalizeAuth = (auth: CollectionAuthInput) => ({
+  type: auth.type ?? 'none',
+  token: auth.token?.trim() ?? '',
+  headerName: auth.headerName?.trim() ?? '',
+  headerValue: auth.headerValue?.trim() ?? '',
+});
+
+const isValidAuth = (auth: CollectionAuthInput): boolean =>
+  !auth.type || (AUTH_TYPES as readonly string[]).includes(auth.type);
 
 router.get('/', authMiddleware, async (req: AuthenticatedRequest, res: Response<ApiResponse>) => {
   try {
@@ -42,12 +62,20 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       return;
     }
 
-    const { name, description } = req.body as CreateCollectionRequest;
+    const { name, description, auth } = req.body as CreateCollectionRequest;
 
     if (!name || name.trim().length === 0) {
       res.status(400).json({
         success: false,
         message: '集合名称不能为空',
+      });
+      return;
+    }
+
+    if (auth && !isValidAuth(auth)) {
+      res.status(400).json({
+        success: false,
+        message: '无效的鉴权类型，仅支持 none、bearer、custom',
       });
       return;
     }
@@ -69,6 +97,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       userId: req.user._id,
       name: name.trim(),
       description: description?.trim(),
+      ...(auth ? { auth: normalizeAuth(auth) } : {}),
     });
 
     await collection.save();
@@ -93,12 +122,20 @@ router.put('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Respon
     }
 
     const { id } = req.params;
-    const { name, description } = req.body as CreateCollectionRequest;
+    const { name, description, auth } = req.body as CreateCollectionRequest;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(400).json({
         success: false,
         message: '无效的集合 ID',
+      });
+      return;
+    }
+
+    if (auth && !isValidAuth(auth)) {
+      res.status(400).json({
+        success: false,
+        message: '无效的鉴权类型，仅支持 none、bearer、custom',
       });
       return;
     }
@@ -136,6 +173,10 @@ router.put('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Respon
 
     if (description !== undefined) {
       collection.description = description?.trim();
+    }
+
+    if (auth !== undefined) {
+      collection.auth = normalizeAuth(auth);
     }
 
     await collection.save();
