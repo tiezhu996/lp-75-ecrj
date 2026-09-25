@@ -1,14 +1,16 @@
 import http from './http';
-import { ApiResponse, Collection } from '../types';
+import { ApiResponse, Collection, CollectionAuthConfig } from '../types';
 
 interface CreateCollectionParams {
   name: string;
   description?: string;
+  authConfig?: CollectionAuthConfig;
 }
 
 interface UpdateCollectionParams {
   name?: string;
   description?: string;
+  authConfig?: CollectionAuthConfig;
 }
 
 export const getCollections = async (): Promise<Collection[]> => {

@@ -13,6 +13,7 @@ import {
   Typography,
   Empty,
   Popconfirm,
+  Tooltip,
 } from 'antd';
 import {
   SendOutlined,
@@ -23,6 +24,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   ReloadOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import Editor from '@monaco-editor/react';
 import {
@@ -41,6 +43,11 @@ import {
 } from '../api/endpoints';
 import { sendRequest } from '../api/proxy';
 import { replaceEnvVariables } from '../utils/environment';
+import {
+  findCollection,
+  getCollectionAuthHeader,
+  hasSameHeader,
+} from '../utils/collectionAuth';
 import { tryFormatJson, isValidJson } from '../utils/json';
 
 const { Content } = Layout;
@@ -73,6 +80,7 @@ interface RequestPanelProps {
 
 const RequestPanel = ({
   collectionId,
+  collections,
   activeEnvironment,
   initialConfig,
 }: RequestPanelProps) => {
@@ -114,6 +122,9 @@ const RequestPanel = ({
     } catch {
     }
   };
+
+  const activeCollection = findCollection(collections, collectionId);
+  const collectionAuth = activeCollection?.authConfig || null;
 
   const handleSelectEndpoint = useCallback((endpoint: ApiEndpoint) => {
     setSelectedEndpoint(endpoint);
@@ -163,6 +174,19 @@ const RequestPanel = ({
       return;
     }
 
+    // 集合共享鉴权：令牌/头值缺失时停止发送；接口同名请求头优先
+    let authHeader: Header | null = null;
+    if (activeCollection) {
+      try {
+        authHeader = getCollectionAuthHeader(activeCollection.authConfig);
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '集合鉴权配置不完整');
+        return;
+      }
+    }
+    const authOverridden =
+      authHeader !== null && hasSameHeader(headers, authHeader.key);
+
     try {
       setSending(true);
       const resolvedUrl = replaceEnvVariables(url, activeEnvironment);
@@ -172,10 +196,14 @@ const RequestPanel = ({
         url: resolvedUrl,
         headers,
         body,
+        // 携带集合 ID，由后端补充共享鉴权头并写入历史
+        collectionId,
       });
 
       setResponse(result);
-      message.success('请求完成');
+      message.success(
+        authHeader && !authOverridden ? '请求完成（已自动补充集合鉴权头）' : '请求完成'
+      );
     } catch {
     } finally {
       setSending(false);
@@ -534,6 +562,47 @@ const RequestPanel = ({
                 <Tag color="green">
                   环境: {activeEnvironment.name}
                 </Tag>
+              )}
+              {activeCollection && collectionAuth && collectionAuth.type === 'bearer' && (
+                <Tooltip
+                  title={
+                    collectionAuth.token
+                      ? '发送时自动补充 Authorization: Bearer <令牌>，接口同名请求头优先'
+                      : 'Bearer 令牌未填写，发送将被中止，请编辑集合补充令牌'
+                  }
+                >
+                  <Tag
+                    icon={<SafetyCertificateOutlined />}
+                    color={collectionAuth.token ? 'blue' : 'red'}
+                  >
+                    鉴权: Bearer{collectionAuth.token ? '' : '（未配置令牌）'}
+                  </Tag>
+                </Tooltip>
+              )}
+              {activeCollection && collectionAuth && collectionAuth.type === 'custom' && (
+                <Tooltip
+                  title={
+                    collectionAuth.headerName && collectionAuth.headerValue
+                      ? `发送时自动补充 ${collectionAuth.headerName} 请求头，接口同名请求头优先`
+                      : `自定义鉴权头${
+                          collectionAuth.headerName ? `「${collectionAuth.headerName}」` : ''
+                        }未填写完整，发送将被中止，请编辑集合补充`
+                  }
+                >
+                  <Tag
+                    icon={<SafetyCertificateOutlined />}
+                    color={
+                      collectionAuth.headerName && collectionAuth.headerValue
+                        ? 'blue'
+                        : 'red'
+                    }
+                  >
+                    鉴权: 自定义
+                    {collectionAuth.headerName && collectionAuth.headerValue
+                      ? ''
+                      : '（未配置完整）'}
+                  </Tag>
+                </Tooltip>
               )}
             </div>
           </Card>

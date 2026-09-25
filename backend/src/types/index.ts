@@ -25,11 +25,21 @@ export interface HeaderItem {
   enabled: boolean;
 }
 
+export type CollectionAuthType = 'none' | 'bearer' | 'custom';
+
+export interface CollectionAuthConfig {
+  type: CollectionAuthType;
+  token?: string;
+  headerName?: string;
+  headerValue?: string;
+}
+
 export interface ProxyRequestData {
   method: HttpMethod;
   url: string;
   headers: HeaderItem[];
   body?: string;
+  collectionId?: string;
 }
 
 export interface ProxyResponse {

@@ -37,11 +37,21 @@ export interface Environment {
   updatedAt: string;
 }
 
+export type CollectionAuthType = 'none' | 'bearer' | 'custom';
+
+export interface CollectionAuthConfig {
+  type: CollectionAuthType;
+  token?: string;
+  headerName?: string;
+  headerValue?: string;
+}
+
 export interface Collection {
   _id: string;
   userId: string;
   name: string;
   description?: string;
+  authConfig?: CollectionAuthConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -93,4 +103,5 @@ export interface RequestConfig {
   url: string;
   headers: Header[];
   body?: string;
+  collectionId?: string | null;
 }

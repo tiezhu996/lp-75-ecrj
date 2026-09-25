@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Modal, Form, Input, message, Popconfirm, Space } from 'antd';
+import { Layout, Menu, Button, Modal, Form, Input, message, Popconfirm, Space, Radio } from 'antd';
 import {
-  PlusOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, HistoryOutlined, SettingOutlined } from '@ant-design/icons';
-import { Collection } from '../types';
+  PlusOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, HistoryOutlined,
+  SafetyCertificateOutlined, SettingOutlined,
+} from '@ant-design/icons';
+import { Collection, CollectionAuthType } from '../types';
 import { createCollection, deleteCollection, updateCollection } from '../api/collections';
 
 const { Sider } = Layout;
@@ -16,17 +18,28 @@ interface SidebarProps {
   onRefreshCollections: () => void;
 }
 
+interface CollectionFormValues {
+  name: string;
+  description?: string;
+  authType: CollectionAuthType;
+  bearerToken?: string;
+  customHeaderName?: string;
+  customHeaderValue?: string;
+}
+
 const Sidebar = ({
   collections,
   selectedCollectionId,
   onSelectCollection,
   onOpenHistory,
   onOpenEnvironments,
+  onRefreshCollections,
 }: SidebarProps) => {
   const [collectionModalVisible, setCollectionModalVisible] = useState(false);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
-  const [collectionForm] = Form.useForm();
+  const [collectionForm] = Form.useForm<CollectionFormValues>();
   const [collectionModalLoading, setCollectionModalLoading] = useState(false);
+  const authType = Form.useWatch('authType', collectionForm);
 
   useEffect(() => {
     if (!collectionModalVisible) {
@@ -38,26 +51,77 @@ const Sidebar = ({
   const handleOpenCollectionModal = (collection?: Collection) => {
     setEditingCollection(collection || null);
     if (collection) {
+      const auth = collection.authConfig || { type: 'none' as const };
       collectionForm.setFieldsValue({
         name: collection.name,
         description: collection.description || '',
+        authType: auth.type,
+        bearerToken: auth.type === 'bearer' ? auth.token || '' : '',
+        customHeaderName: auth.type === 'custom' ? auth.headerName || '' : '',
+        customHeaderValue: auth.type === 'custom' ? auth.headerValue || '' : '',
+      });
+    } else {
+      collectionForm.setFieldsValue({
+        authType: 'none',
+        bearerToken: '',
+        customHeaderName: '',
+        customHeaderValue: '',
       });
     }
     setCollectionModalVisible(true);
   };
 
-  const handleSaveCollection = async (values: { name: string; description?: string }) => {
+  const buildAuthConfig = (values: CollectionFormValues) => {
+    if (values.authType === 'bearer') {
+      return {
+        type: 'bearer' as const,
+        token: values.bearerToken || '',
+      };
+    }
+    if (values.authType === 'custom') {
+      return {
+        type: 'custom' as const,
+        headerName: (values.customHeaderName || '').trim(),
+        headerValue: values.customHeaderValue || '',
+      };
+    }
+    return { type: 'none' as const };
+  };
+
+  const handleSaveCollection = async (values: CollectionFormValues) => {
+    if (values.authType === 'bearer' && !(values.bearerToken || '').trim()) {
+      message.error('请填写 Bearer 令牌');
+      return;
+    }
+    if (values.authType === 'custom') {
+      if (!(values.customHeaderName || '').trim()) {
+        message.error('请填写自定义请求头名称');
+        return;
+      }
+      if (!(values.customHeaderValue || '').trim()) {
+        message.error('请填写自定义请求头的值');
+        return;
+      }
+    }
+
+    const payload = {
+      name: values.name.trim(),
+      description: values.description?.trim(),
+      authConfig: buildAuthConfig(values),
+    };
+
     try {
       setCollectionModalLoading(true);
       if (editingCollection) {
-        await updateCollection(editingCollection._id, values);
+        await updateCollection(editingCollection._id, payload);
         message.success('更新成功');
       } else {
-        await createCollection(values);
+        await createCollection(payload);
         message.success('创建成功');
       }
       setCollectionModalVisible(false);
       collectionForm.resetFields();
+      onRefreshCollections();
     } catch {
     } finally {
       setCollectionModalLoading(false);
@@ -68,6 +132,7 @@ const Sidebar = ({
     try {
       await deleteCollection(id);
       message.success('删除成功');
+      onRefreshCollections();
     } catch {
     }
   };
@@ -132,7 +197,12 @@ const Sidebar = ({
                   </Space>
                 }
               >
-                {collection.name}
+                <Space size={4}>
+                  {collection.name}
+                  {collection.authConfig && collection.authConfig.type !== 'none' && (
+                    <SafetyCertificateOutlined style={{ color: '#52c41a', fontSize: 12 }} />
+                  )}
+                </Space>
               </Menu.Item>
             ))}
           </Menu>
@@ -162,7 +232,12 @@ const Sidebar = ({
         onCancel={() => setCollectionModalVisible(false)}
         footer={null}
       >
-        <Form form={collectionForm} layout="vertical" onFinish={handleSaveCollection}>
+        <Form
+          form={collectionForm}
+          layout="vertical"
+          onFinish={handleSaveCollection}
+          initialValues={{ authType: 'none' }}
+        >
           <Form.Item
             name="name"
             label="集合名称"
@@ -171,8 +246,42 @@ const Sidebar = ({
             <Input placeholder="请输入集合名称" />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea placeholder="请输入描述" rows={3} />
+            <Input.TextArea placeholder="请输入描述" rows={2} />
           </Form.Item>
+
+          <Form.Item
+            name="authType"
+            label="共享鉴权"
+            extra="发送集合内接口或集合下临时请求时自动补充，接口同名请求头优先"
+          >
+            <Radio.Group>
+              <Radio value="none">不使用</Radio>
+              <Radio value="bearer">Bearer 令牌</Radio>
+              <Radio value="custom">自定义请求头</Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          {authType === 'bearer' && (
+            <Form.Item
+              name="bearerToken"
+              label="Bearer 令牌"
+              extra="将以 Authorization: Bearer &lt;令牌&gt; 发送，仅保存于本集合"
+            >
+              <Input.Password placeholder="请输入访问令牌" autoComplete="off" />
+            </Form.Item>
+          )}
+
+          {authType === 'custom' && (
+            <>
+              <Form.Item name="customHeaderName" label="请求头名称">
+                <Input placeholder="例如 X-API-Key" autoComplete="off" />
+              </Form.Item>
+              <Form.Item name="customHeaderValue" label="请求头的值">
+                <Input.Password placeholder="请输入请求头的值" autoComplete="off" />
+              </Form.Item>
+            </>
+          )}
+
           <Form.Item style={{ marginBottom: 0 }}>
             <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button onClick={() => setCollectionModalVisible(false)}>取消</Button>

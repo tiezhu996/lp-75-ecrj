@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import authMiddleware from '../middleware/auth';
 import Collection from '../models/Collection';
 import ApiEndpoint from '../models/ApiEndpoint';
-import { AuthenticatedRequest, ApiResponse } from '../types';
+import { AuthenticatedRequest, ApiResponse, CollectionAuthConfig, CollectionAuthType } from '../types';
 import mongoose from 'mongoose';
 
 const router = Router();
@@ -10,6 +10,35 @@ const router = Router();
 interface CreateCollectionRequest {
   name: string;
   description?: string;
+  authConfig?: CollectionAuthConfig;
+}
+
+const AUTH_TYPES: CollectionAuthType[] = ['none', 'bearer', 'custom'];
+
+function normalizeAuthConfig(authConfig?: CollectionAuthConfig) {
+  if (!authConfig || !AUTH_TYPES.includes(authConfig.type)) {
+    return { type: 'none' as const, token: '', headerName: '', headerValue: '' };
+  }
+
+  if (authConfig.type === 'bearer') {
+    return {
+      type: 'bearer' as const,
+      token: authConfig.token || '',
+      headerName: '',
+      headerValue: '',
+    };
+  }
+
+  if (authConfig.type === 'custom') {
+    return {
+      type: 'custom' as const,
+      token: '',
+      headerName: (authConfig.headerName || '').trim(),
+      headerValue: authConfig.headerValue || '',
+    };
+  }
+
+  return { type: 'none' as const, token: '', headerName: '', headerValue: '' };
 }
 
 router.get('/', authMiddleware, async (req: AuthenticatedRequest, res: Response<ApiResponse>) => {
@@ -42,7 +71,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       return;
     }
 
-    const { name, description } = req.body as CreateCollectionRequest;
+    const { name, description, authConfig } = req.body as CreateCollectionRequest;
 
     if (!name || name.trim().length === 0) {
       res.status(400).json({
@@ -69,6 +98,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       userId: req.user._id,
       name: name.trim(),
       description: description?.trim(),
+      authConfig: normalizeAuthConfig(authConfig),
     });
 
     await collection.save();
@@ -93,7 +123,7 @@ router.put('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Respon
     }
 
     const { id } = req.params;
-    const { name, description } = req.body as CreateCollectionRequest;
+    const { name, description, authConfig } = req.body as CreateCollectionRequest;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(400).json({
@@ -136,6 +166,10 @@ router.put('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Respon
 
     if (description !== undefined) {
       collection.description = description?.trim();
+    }
+
+    if (authConfig !== undefined) {
+      collection.authConfig = normalizeAuthConfig(authConfig);
     }
 
     await collection.save();
